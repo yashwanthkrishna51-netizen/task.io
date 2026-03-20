@@ -1,10 +1,12 @@
 "use client";
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
 
-// Your web app's Firebase configuration
+import { useState, useEffect } from "react";
+// --- FIREBASE IMPORTS ---
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, query, where, onSnapshot } from "firebase/firestore";
+
+// --- FIREBASE CONFIG ---
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -14,26 +16,30 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-
-
-import { useState, useEffect } from "react";
+// Initialize Firebase safely for Next.js
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 type Task = {
-  id: string;
+  id: string; // This is now the Firestore Document ID
   title: string;
   deadline: string;
   isCompleted: boolean;
   closingComment?: string;
+  userId: string; // Ties the task to the logged-in user
 };
 
 export default function TaskTracker() {
+  // --- AUTH STATES ---
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // --- APP STATES ---
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDeadline, setNewTaskDeadline] = useState("");
 
-  // States
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [closingComment, setClosingComment] = useState("");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -44,16 +50,42 @@ export default function TaskTracker() {
   const [isDark, setIsDark] = useState(true);
   const [quote, setQuote] = useState({ text: "Loading inspiration...", author: "System" });
 
-  // Initial Load
+  // --- REAL-TIME FIRESTORE & AUTH LISTENER ---
   useEffect(() => {
     setMounted(true);
-    const savedTasks = localStorage.getItem("vimaso-task-tracker");
-    if (savedTasks) setTasks(JSON.parse(savedTasks));
 
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+
+      if (currentUser) {
+        // Fetch only tasks for the logged-in user
+        const q = query(collection(db, "tasks"), where("userId", "==", currentUser.uid));
+
+        // Listen for real-time updates from Firebase
+        const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+          const fetchedTasks = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as Task[];
+          setTasks(fetchedTasks);
+        });
+
+        return () => unsubscribeSnapshot();
+      } else {
+        setTasks([]); // Clear tasks if logged out
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  // --- THEME & QUOTE LOGIC (Stored locally) ---
+  useEffect(() => {
+    if (!mounted) return;
     const savedTheme = localStorage.getItem("vimaso-theme");
     if (savedTheme === "light") setIsDark(false);
 
-    // Fetch Daily Quote
     const fetchQuote = async () => {
       const today = new Date().toDateString();
       const savedQuote = localStorage.getItem("daily-quote");
@@ -75,20 +107,25 @@ export default function TaskTracker() {
       }
     };
     fetchQuote();
-  }, []);
+  }, [mounted]);
 
-  // Save changes
   useEffect(() => {
-    if (mounted) {
-      localStorage.setItem("vimaso-task-tracker", JSON.stringify(tasks));
-      localStorage.setItem("vimaso-theme", isDark ? "dark" : "light");
-    }
-  }, [tasks, isDark, mounted]);
+    if (mounted) localStorage.setItem("vimaso-theme", isDark ? "dark" : "light");
+  }, [isDark, mounted]);
 
-  const addTask = (e: React.FormEvent) => {
+  // --- FIREBASE CRUD OPERATIONS ---
+  const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskTitle || !newTaskDeadline) return;
-    setTasks([...tasks, { id: crypto.randomUUID(), title: newTaskTitle, deadline: newTaskDeadline, isCompleted: false }]);
+    if (!newTaskTitle || !newTaskDeadline || !user) return;
+
+    // Save to Firebase instead of LocalStorage
+    await addDoc(collection(db, "tasks"), {
+      title: newTaskTitle,
+      deadline: newTaskDeadline,
+      isCompleted: false,
+      userId: user.uid
+    });
+
     setNewTaskTitle("");
     setNewTaskDeadline("");
   };
@@ -99,20 +136,50 @@ export default function TaskTracker() {
     setEditDeadline(task.deadline);
   };
 
-  const saveEdit = (id: string) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, title: editTitle, deadline: editDeadline } : t));
+  const saveEdit = async (id: string) => {
+    await updateDoc(doc(db, "tasks", id), { title: editTitle, deadline: editDeadline });
     setEditingTaskId(null);
   };
 
-  const confirmCompletion = (id: string) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, isCompleted: true, closingComment: closingComment } : t));
+  const confirmCompletion = async (id: string) => {
+    await updateDoc(doc(db, "tasks", id), { isCompleted: true, closingComment: closingComment });
     setCompletingTaskId(null);
     setClosingComment("");
   };
 
-  const deleteTask = (id: string) => setTasks(tasks.filter(t => t.id !== id));
+  const deleteTask = async (id: string) => {
+    await deleteDoc(doc(db, "tasks", id));
+  };
 
   if (!mounted) return null;
+
+  // --- STYLES ---
+  const themeWrapper = isDark ? "bg-[#000000] text-[#f5f5f7]" : "bg-[#f5f5f7] text-[#1d1d1f]";
+  const cardStyle = `transition-transform duration-300 transform hover:scale-[1.02] rounded-[18px] p-5 ${isDark ? "bg-[#1c1c1e] border border-white/5" : "bg-white border border-black/5 shadow-sm"}`;
+  const inputStyle = `w-full px-4 py-2.5 rounded-[10px] focus:outline-none transition-colors border ${isDark ? "bg-white/5 border-[#424245] text-white focus:border-[#2997ff]" : "bg-black/5 border-gray-200 text-black focus:border-[#2997ff]"}`;
+  const btnPrimary = "bg-gradient-to-r from-[#2997ff] to-[#0051d5] text-white rounded-full px-6 py-2.5 font-semibold hover:opacity-90 transition-opacity border-none whitespace-nowrap";
+  const btnSecondary = `rounded-full px-4 py-1.5 text-sm font-medium transition-colors border ${isDark ? "border-[#2997ff] text-[#2997ff] hover:bg-[#2997ff]/10" : "border-[#0051d5] text-[#0051d5] hover:bg-[#0051d5]/10"}`;
+  const btnGhost = `text-sm font-medium transition-opacity hover:opacity-70 ${isDark ? "text-[#86868b]" : "text-gray-500"}`;
+
+  // --- LOGIN SCREEN ---
+  if (authLoading) return <div className={`min-h-screen flex items-center justify-center font-sans ${themeWrapper}`}>Checking credentials...</div>;
+
+  if (!user) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center font-sans ${themeWrapper}`}>
+        <div className={`p-10 rounded-[22px] border max-w-md w-full text-center space-y-8 ${isDark ? "bg-[#1c1c1e] border-white/5" : "bg-white border-black/5 shadow-sm"}`}>
+          <div className="w-12 h-12 mx-auto rounded-xl bg-gradient-to-br from-[#2997ff] to-[#0051d5] shadow-[0_0_20px_rgba(41,151,255,0.4)]"></div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight mb-2">Task.IO</h1>
+            <p className={isDark ? "text-[#86868b]" : "text-gray-500"}>Sign in to sync your goals to the cloud.</p>
+          </div>
+          <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className={`${btnPrimary} w-full py-3 text-lg`}>
+            Continue with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // --- DATE LOGIC ---
   const today = new Date();
@@ -134,17 +201,6 @@ export default function TaskTracker() {
     { id: 'long', label: 'Long Term (> 6m)', data: activeTasks.filter(t => getDaysDifference(t.deadline) > 182) }
   ];
 
-  // Tailored "ViMaSo" UI Classes
-  const themeWrapper = isDark ? "bg-[#000000] text-[#f5f5f7]" : "bg-[#f5f5f7] text-[#1d1d1f]";
-  const cardStyle = `transition-transform duration-300 transform hover:scale-[1.02] rounded-[18px] p-5 ${isDark ? "bg-[#1c1c1e] border border-white/5" : "bg-white border border-black/5 shadow-sm"
-    }`;
-  const inputStyle = `w-full px-4 py-2.5 rounded-[10px] focus:outline-none transition-colors border ${isDark ? "bg-white/5 border-[#424245] text-white focus:border-[#2997ff]" : "bg-black/5 border-gray-200 text-black focus:border-[#2997ff]"
-    }`;
-  const btnPrimary = "bg-gradient-to-r from-[#2997ff] to-[#0051d5] text-white rounded-full px-6 py-2.5 font-semibold hover:opacity-90 transition-opacity border-none whitespace-nowrap";
-  const btnSecondary = `rounded-full px-4 py-1.5 text-sm font-medium transition-colors border ${isDark ? "border-[#2997ff] text-[#2997ff] hover:bg-[#2997ff]/10" : "border-[#0051d5] text-[#0051d5] hover:bg-[#0051d5]/10"
-    }`;
-  const btnGhost = `text-sm font-medium transition-opacity hover:opacity-70 ${isDark ? "text-[#86868b]" : "text-gray-500"}`;
-
   return (
     <div className={`min-h-screen font-sans transition-colors duration-500 antialiased tracking-tight overflow-x-hidden ${themeWrapper}`}>
 
@@ -154,9 +210,14 @@ export default function TaskTracker() {
           <div className="w-6 h-6 rounded-md bg-gradient-to-r from-[#2997ff] to-[#0051d5] shadow-[0_0_10px_rgba(41,151,255,0.6)]"></div>
           Task.IO
         </div>
-        <button onClick={() => setIsDark(!isDark)} className={btnSecondary}>
-          {isDark ? "Light Mode" : "Dark Mode"}
-        </button>
+
+        <div className="flex items-center gap-4">
+          <span className={`text-sm hidden md:block ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>{user.email}</span>
+          <button onClick={() => setIsDark(!isDark)} className={btnSecondary}>
+            {isDark ? "Light Mode" : "Dark Mode"}
+          </button>
+          <button onClick={() => signOut(auth)} className={btnGhost}>Log out</button>
+        </div>
       </div>
 
       <div className="max-w-[1600px] mx-auto space-y-10 p-6 md:p-10">

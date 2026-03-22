@@ -1,12 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-// --- FIREBASE IMPORTS ---
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from "firebase/auth";
 import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, query, where, onSnapshot, writeBatch } from "firebase/firestore";
 
-// --- FIREBASE CONFIG ---
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -20,45 +18,27 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- TYPES ---
-type Subtask = {
-  id: string;
-  title: string;
-  isCompleted: boolean;
-};
-
+type Subtask = { id: string; title: string; isCompleted: boolean; };
 type Task = {
-  id: string;
-  title: string;
-  notes?: string;
-  subtasks?: Subtask[];
-  deadline: string;
-  isCompleted: boolean;
-  closingComment?: string;
-  userId: string;
+  id: string; title: string; notes?: string; subtasks?: Subtask[];
+  deadline: string; isCompleted: boolean; closingComment?: string; userId: string;
 };
 
 export default function TaskTracker() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDeadline, setNewTaskDeadline] = useState("");
-
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [closingComment, setClosingComment] = useState("");
-
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
   const [tempNotes, setTempNotes] = useState("");
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
-
   const [mounted, setMounted] = useState(false);
   const [isDark, setIsDark] = useState(true);
   const [quote, setQuote] = useState({ text: "Loading inspiration...", author: "System" });
-
-  // --- CSV Import State ---
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -82,7 +62,6 @@ export default function TaskTracker() {
     if (!mounted) return;
     const savedTheme = localStorage.getItem("vimaso-theme");
     if (savedTheme === "light") setIsDark(false);
-
     const fetchQuote = async () => {
       const today = new Date().toDateString();
       const saved = localStorage.getItem("daily-quote");
@@ -95,9 +74,7 @@ export default function TaskTracker() {
           setQuote({ text: data.quote, author: data.author });
           localStorage.setItem("daily-quote", JSON.stringify({ text: data.quote, author: data.author }));
           localStorage.setItem("daily-quote-date", today);
-        } catch {
-          setQuote({ text: "The future belongs to those who build it.", author: "Unknown" });
-        }
+        } catch { setQuote({ text: "The future belongs to those who build it.", author: "Unknown" }); }
       }
     };
     fetchQuote();
@@ -107,26 +84,19 @@ export default function TaskTracker() {
     if (mounted) localStorage.setItem("vimaso-theme", isDark ? "dark" : "light");
   }, [isDark, mounted]);
 
-  // --- STANDARD ACTIONS ---
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitle || !newTaskDeadline || !user) return;
     await addDoc(collection(db, "tasks"), {
-      title: newTaskTitle,
-      deadline: newTaskDeadline,
-      isCompleted: false,
-      userId: user.uid,
-      notes: "",
-      subtasks: [],
+      title: newTaskTitle, deadline: newTaskDeadline,
+      isCompleted: false, userId: user.uid, notes: "", subtasks: [],
     });
-    setNewTaskTitle("");
-    setNewTaskDeadline("");
+    setNewTaskTitle(""); setNewTaskDeadline("");
   };
 
   const confirmCompletion = async (id: string) => {
     await updateDoc(doc(db, "tasks", id), { isCompleted: true, closingComment });
-    setCompletingTaskId(null);
-    setClosingComment("");
+    setCompletingTaskId(null); setClosingComment("");
   };
 
   const deleteTask = async (id: string) => await deleteDoc(doc(db, "tasks", id));
@@ -140,24 +110,19 @@ export default function TaskTracker() {
     e.preventDefault();
     if (!newSubtaskTitle) return;
     const newSub: Subtask = { id: crypto.randomUUID(), title: newSubtaskTitle, isCompleted: false };
-    const updatedSubtasks = [...(task.subtasks || []), newSub];
-    await updateDoc(doc(db, "tasks", task.id), { subtasks: updatedSubtasks });
+    await updateDoc(doc(db, "tasks", task.id), { subtasks: [...(task.subtasks || []), newSub] });
     setNewSubtaskTitle("");
   };
 
   const toggleSubtask = async (task: Task, subtaskId: string) => {
-    const updatedSubtasks = task.subtasks?.map(st =>
-      st.id === subtaskId ? { ...st, isCompleted: !st.isCompleted } : st
-    );
+    const updatedSubtasks = task.subtasks?.map(st => st.id === subtaskId ? { ...st, isCompleted: !st.isCompleted } : st);
     await updateDoc(doc(db, "tasks", task.id), { subtasks: updatedSubtasks });
   };
 
   const deleteSubtask = async (task: Task, subtaskId: string) => {
-    const updatedSubtasks = task.subtasks?.filter(st => st.id !== subtaskId);
-    await updateDoc(doc(db, "tasks", task.id), { subtasks: updatedSubtasks });
+    await updateDoc(doc(db, "tasks", task.id), { subtasks: task.subtasks?.filter(st => st.id !== subtaskId) });
   };
 
-  // --- DOWNLOAD TEMPLATE ---
   const downloadTemplate = () => {
     const templateData = [
       ["title", "deadline", "notes"],
@@ -166,13 +131,10 @@ export default function TaskTracker() {
       ["Example: Quarterly business review", "2026-04-15", "Discuss Q1 metrics with team"],
       ["", "", ""],
     ];
-    const csvContent = templateData.map(row =>
-      row.map(cell => `"${cell}"`).join(",")
-    ).join("\n");
+    const csvContent = templateData.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
+    link.setAttribute("href", URL.createObjectURL(blob));
     link.setAttribute("download", "Task_IO_Import_Template.csv");
     link.style.visibility = "hidden";
     document.body.appendChild(link);
@@ -180,7 +142,6 @@ export default function TaskTracker() {
     document.body.removeChild(link);
   };
 
-  // --- CSV BULK IMPORT ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -195,9 +156,8 @@ export default function TaskTracker() {
         const deadlineIndex = headers.indexOf("deadline");
         const notesIndex = headers.indexOf("notes");
         if (titleIndex === -1 || deadlineIndex === -1) {
-          alert("CSV Error: Make sure row 1 has 'title' and 'deadline' as column names. 'notes' is optional.");
-          setIsImporting(false);
-          return;
+          alert("CSV Error: Make sure row 1 has 'title' and 'deadline' as column names.");
+          setIsImporting(false); return;
         }
         const batch = writeBatch(db);
         let validTasksCount = 0;
@@ -208,38 +168,24 @@ export default function TaskTracker() {
           const deadline = cols[deadlineIndex];
           const notes = notesIndex !== -1 ? cols[notesIndex] : "";
           if (title && deadline) {
-            const newDocRef = doc(collection(db, "tasks"));
-            batch.set(newDocRef, {
-              title,
-              deadline,
-              notes: notes || "",
-              isCompleted: false,
-              userId: user.uid,
-              subtasks: [],
+            batch.set(doc(collection(db, "tasks")), {
+              title, deadline, notes: notes || "",
+              isCompleted: false, userId: user.uid, subtasks: [],
             });
             validTasksCount++;
           }
         }
-        if (validTasksCount > 0) {
-          await batch.commit();
-          alert(`✅ Success! Imported ${validTasksCount} tasks.`);
-        } else {
-          alert("⚠️ No valid tasks found. Check your CSV formatting.");
-        }
-      } catch (error) {
-        console.error("Error importing CSV:", error);
-        alert("❌ Failed to parse the CSV file.");
-      } finally {
-        setIsImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
+        if (validTasksCount > 0) { await batch.commit(); alert(`✅ Success! Imported ${validTasksCount} tasks.`); }
+        else alert("⚠️ No valid tasks found. Check your CSV formatting.");
+      } catch (error) { console.error("Error importing CSV:", error); alert("❌ Failed to parse the CSV file."); }
+      finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
     };
     reader.readAsText(file);
   };
 
   if (!mounted) return null;
 
-  // --- STYLES (Obsidian Ember — Geist + Satoshi) ---
+  // --- STYLES ---
   const geist = "font-[family-name:var(--font-geist-sans)]";
   const themeWrapper = isDark ? "bg-[#0A0A0A] text-[#F5F5F5]" : "bg-[#F5F5F5] text-[#1A1A1A]";
   const cardStyle = `transition-all duration-300 rounded-[14px] p-5 ${isDark ? "bg-[#111111] border border-white/[0.08]" : "bg-white border border-black/[0.08] shadow-sm"}`;
@@ -250,6 +196,14 @@ export default function TaskTracker() {
   const mutedText = isDark ? "text-[#A0A0A0]" : "text-[#6B6B6B]";
   const labelStyle = `block text-[12px] font-medium mb-1 ${geist} ${mutedText}`;
   const divider = isDark ? "border-white/[0.08]" : "border-black/[0.08]";
+
+  // --- COLUMN HEADER ACCENT COLORS per bucket ---
+  const bucketAccent: Record<string, string> = {
+    daily: "text-[#FF453A]",
+    short: "text-[#FF9F0A]",
+    near: "text-[#FF5C2B]",
+    long: "text-[#34C759]",
+  };
 
   if (authLoading) return (
     <div className={`min-h-screen flex items-center justify-center ${themeWrapper}`}>
@@ -263,10 +217,7 @@ export default function TaskTracker() {
         <div className={`${cardStyle} w-full max-w-sm flex flex-col gap-6 text-center`}>
           <h1 className={`text-[32px] font-bold tracking-tight ${geist}`}>Task.IO</h1>
           <p className={`text-[15px] ${mutedText}`}>Sign in to sync your goals.</p>
-          <button
-            onClick={() => signInWithPopup(auth, new GoogleAuthProvider())}
-            className={`${btnPrimary} w-full py-3 text-[16px]`}
-          >
+          <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className={`${btnPrimary} w-full py-3 text-[16px]`}>
             Continue with Google
           </button>
         </div>
@@ -283,24 +234,134 @@ export default function TaskTracker() {
     .filter(t => !t.isCompleted)
     .sort((a, b) => {
       const dateDiff = new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
-      if (dateDiff === 0) return a.title.localeCompare(b.title);
-      return dateDiff;
+      return dateDiff === 0 ? a.title.localeCompare(b.title) : dateDiff;
     });
 
   const buckets = [
     { id: "daily", label: "Daily Goals", data: activeTasks.filter(t => getDaysDiff(t.deadline) <= 0) },
-    { id: "short", label: "Short Term (< 7d)", data: activeTasks.filter(t => { const d = getDaysDiff(t.deadline); return d > 0 && d <= 7; }) },
-    { id: "near", label: "Near Future (< 6m)", data: activeTasks.filter(t => { const d = getDaysDiff(t.deadline); return d > 7 && d <= 182; }) },
-    { id: "long", label: "Long Term (> 6m)", data: activeTasks.filter(t => getDaysDiff(t.deadline) > 182) },
+    { id: "short", label: "Short Term", sublabel: "< 7 days", data: activeTasks.filter(t => { const d = getDaysDiff(t.deadline); return d > 0 && d <= 7; }) },
+    { id: "near", label: "Near Future", sublabel: "< 6 months", data: activeTasks.filter(t => { const d = getDaysDiff(t.deadline); return d > 7 && d <= 182; }) },
+    { id: "long", label: "Long Term", sublabel: "> 6 months", data: activeTasks.filter(t => getDaysDiff(t.deadline) > 182) },
   ];
+
+  // ─── TASK CARD — extracted as a helper to keep JSX clean ───
+  const renderTaskCard = (task: Task) => {
+    const diffDays = getDaysDiff(task.deadline);
+    const isBreached = diffDays < 0;
+    const isExpanded = expandedTaskId === task.id;
+    const subTotal = task.subtasks?.length || 0;
+    const subDone = task.subtasks?.filter(s => s.isCompleted).length || 0;
+    const progressPct = subTotal === 0 ? 0 : Math.round((subDone / subTotal) * 100);
+
+    return (
+      <div key={task.id} className={cardStyle}>
+        {/* Task Title + Meta */}
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-[15px] font-medium leading-snug flex-1">{task.title}</p>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${geist} ${isBreached ? "bg-[#FF453A]/10 text-[#FF453A]" : "bg-[#34C759]/10 text-[#34C759]"}`}>
+              {isBreached ? "Breached" : "On Track"}
+            </span>
+            <span className={`text-[12px] font-medium ${geist} ${mutedText}`}>
+              {diffDays === 0 ? "Today" : diffDays === 1 ? "Tomorrow" : diffDays < 0 ? `${Math.abs(diffDays)}d ago` : `In ${diffDays}d`}
+            </span>
+          </div>
+        </div>
+
+        {/* Subtask Progress Bar */}
+        {subTotal > 0 && (
+          <div className="mt-2">
+            <div className={`flex justify-between text-[11px] mb-1 ${mutedText} ${geist}`}>
+              <span>Progress</span><span>{subDone}/{subTotal}</span>
+            </div>
+            <div className={`h-[2px] rounded-full overflow-hidden ${isDark ? "bg-white/[0.08]" : "bg-black/[0.08]"}`}>
+              <div className="h-full rounded-full bg-[#FF5C2B] transition-all duration-500" style={{ width: `${progressPct}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* Expanded Panel */}
+        {isExpanded ? (
+          <div className={`mt-4 pt-4 border-t flex flex-col gap-4 ${divider}`}>
+            {/* Notes */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-[12px] font-semibold ${geist} ${mutedText}`}>Notes</span>
+                {editingNotesId !== task.id && (
+                  <button onClick={() => { setEditingNotesId(task.id); setTempNotes(task.notes || ""); }} className={btnGhost}>Edit</button>
+                )}
+              </div>
+              {editingNotesId === task.id ? (
+                <div className="flex flex-col gap-2">
+                  <textarea value={tempNotes} onChange={e => setTempNotes(e.target.value)} className={`${inputStyle} min-h-[80px] resize-y`} placeholder="Add context, links, or detailed plans..." autoFocus />
+                  <div className="flex gap-3">
+                    <button onClick={() => saveNotes(task.id)} className={`text-[13px] font-semibold ${geist} text-[#FF5C2B]`}>Save</button>
+                    <button onClick={() => setEditingNotesId(null)} className={btnGhost}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <p className={`text-[14px] leading-relaxed ${task.notes ? "" : mutedText}`}>
+                  {task.notes || "No notes added."}
+                </p>
+              )}
+            </div>
+
+            {/* Subtasks */}
+            <div>
+              <span className={`text-[12px] font-semibold ${geist} block mb-2 ${mutedText}`}>Subtasks</span>
+              {task.subtasks?.map(sub => (
+                <div key={sub.id} className="group flex items-center gap-2 py-1.5">
+                  <input type="checkbox" checked={sub.isCompleted} onChange={() => toggleSubtask(task, sub.id)} className="w-4 h-4 rounded accent-[#FF5C2B]" />
+                  <span className={`text-[14px] flex-1 ${sub.isCompleted ? "line-through opacity-40" : ""}`}>{sub.title}</span>
+                  <button onClick={() => deleteSubtask(task, sub.id)} className={`text-[11px] font-medium text-[#FF453A] opacity-0 group-hover:opacity-100 transition-opacity ${geist}`}>Drop</button>
+                </div>
+              ))}
+              <form onSubmit={e => addSubtask(e, task)} className="flex gap-2 mt-2">
+                <input type="text" value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} placeholder="Add subtask..." className={`${inputStyle} py-1.5 text-[13px]`} />
+                <button type="submit" className={btnPrimary}>Add</button>
+              </form>
+            </div>
+
+            <button onClick={() => setExpandedTaskId(null)} className={`text-[13px] text-center pt-2 border-t font-medium ${geist} transition-colors ${divider} ${mutedText}`}>
+              Hide Details
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setExpandedTaskId(task.id)} className={`text-[13px] text-left mt-2 pt-2 border-t font-medium transition-colors ${geist} w-full ${divider} ${mutedText}`}>
+            + View Details & Notes
+          </button>
+        )}
+
+        {/* Complete / Delete */}
+        {!isExpanded && (
+          <div className="flex items-center gap-4 mt-2">
+            {completingTaskId === task.id ? (
+              <div className="flex items-center gap-2 w-full">
+                <input type="text" placeholder="Closing comment..." value={closingComment} onChange={e => setClosingComment(e.target.value)} className={`${inputStyle} text-[13px] py-1`} autoFocus />
+                <button onClick={() => confirmCompletion(task.id)} className={`text-[13px] text-[#34C759] font-semibold ${geist} whitespace-nowrap`}>Confirm</button>
+                <button onClick={() => setCompletingTaskId(null)} className={`text-[13px] ${geist} opacity-50`}>Cancel</button>
+              </div>
+            ) : (
+              <>
+                <button onClick={() => setCompletingTaskId(task.id)} className={`text-[13px] font-medium ${geist} text-[#FF5C2B] hover:text-[#FF8A5C] transition-colors`}>Complete</button>
+                <button onClick={() => deleteTask(task.id)} className={`text-[13px] font-medium text-[#FF453A] hover:opacity-70 transition-opacity ${geist}`}>Delete</button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className={`min-h-screen ${themeWrapper}`}>
-      <div className="max-w-2xl mx-auto px-4 py-8 flex flex-col gap-8">
+
+      {/* ── TOP SECTION: centered, narrow ── */}
+      <div className="max-w-2xl mx-auto px-4 pt-8 pb-6 flex flex-col gap-6">
 
         {/* Header */}
         <header className="flex items-center justify-between">
-          <h1 className={`text-[32px] font-bold tracking-tight ${geist}`}>Task.IO</h1>
+          <h1 className={`text-[28px] font-bold tracking-tight ${geist}`}>Task.IO</h1>
           <div className="flex items-center gap-3">
             <button onClick={() => setIsDark(!isDark)} className={btnSecondary}>
               {isDark ? "Light Mode" : "Dark Mode"}
@@ -312,35 +373,20 @@ export default function TaskTracker() {
         {/* Quote */}
         <div className={`text-[14px] italic leading-relaxed ${mutedText}`}>
           <span>"{quote.text}"</span>
-          <span className={`block mt-1 not-italic text-[12px] font-medium ${geist} ${mutedText}`}>
-            — {quote.author}
-          </span>
+          <span className={`block mt-1 not-italic text-[12px] font-medium ${geist} ${mutedText}`}>— {quote.author}</span>
         </div>
 
-        {/* Initialize Task */}
+        {/* Initialize Task Card */}
         <div className={cardStyle}>
-          <h2 className={`text-[20px] font-semibold mb-4 ${geist}`}>Initialize Task</h2>
+          <h2 className={`text-[18px] font-semibold mb-4 ${geist}`}>Initialize Task</h2>
           <form onSubmit={addTask} className="flex flex-col gap-3">
             <div>
               <label className={labelStyle}>New Objective</label>
-              <input
-                type="text"
-                value={newTaskTitle}
-                onChange={e => setNewTaskTitle(e.target.value)}
-                className={inputStyle}
-                required
-                placeholder="What do you want to achieve?"
-              />
+              <input type="text" value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} className={inputStyle} required placeholder="What do you want to achieve?" />
             </div>
             <div>
               <label className={labelStyle}>Deadline</label>
-              <input
-                type="date"
-                value={newTaskDeadline}
-                onChange={e => setNewTaskDeadline(e.target.value)}
-                className={inputStyle}
-                required
-              />
+              <input type="date" value={newTaskDeadline} onChange={e => setNewTaskDeadline(e.target.value)} className={inputStyle} required />
             </div>
             <button type="submit" className={btnPrimary}>Add Task</button>
           </form>
@@ -348,205 +394,55 @@ export default function TaskTracker() {
           <div className="flex gap-2 mt-4 flex-wrap">
             <button onClick={downloadTemplate} className={btnSecondary}>📋 Download Template</button>
             <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting}
-              className={btnSecondary}
-            >
+            <button onClick={() => fileInputRef.current?.click()} disabled={isImporting} className={btnSecondary}>
               {isImporting ? "Processing..." : "📥 Bulk Import CSV"}
             </button>
           </div>
 
           <p className={`text-[12px] mt-3 ${geist} ${mutedText}`}>
-            📌 CSV Format: Requires columns <code>title</code>, <code>deadline</code> (YYYY-MM-DD), <code>notes</code> (optional)
+            📌 CSV columns: <code>title</code>, <code>deadline</code> (YYYY-MM-DD), <code>notes</code> (optional)
           </p>
         </div>
+      </div>
 
-        {/* Task Buckets */}
-        {buckets.map((bucket) => (
-          <div key={bucket.id} className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <h2 className={`text-[20px] font-semibold ${geist}`}>{bucket.label}</h2>
-              <span className={`text-[12px] font-medium px-2 py-0.5 rounded-full ${geist} ${isDark ? "bg-white/[0.08] text-[#A0A0A0]" : "bg-black/[0.06] text-[#6B6B6B]"}`}>
-                {bucket.data.length}
-              </span>
-            </div>
-
-            {bucket.data.map((task) => {
-              const diffDays = getDaysDiff(task.deadline);
-              const isBreached = diffDays < 0;
-              const isExpanded = expandedTaskId === task.id;
-              const subTotal = task.subtasks?.length || 0;
-              const subDone = task.subtasks?.filter(s => s.isCompleted).length || 0;
-              const progressPct = subTotal === 0 ? 0 : Math.round((subDone / subTotal) * 100);
-
-              return (
-                <div key={task.id} className={cardStyle}>
-                  {/* Task Header Row */}
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-[15px] font-medium leading-snug flex-1">{task.title}</p>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {subTotal > 0 && (
-                        <span className={`text-[12px] font-medium ${geist} ${mutedText}`}>
-                          {subDone}/{subTotal}
-                        </span>
-                      )}
-                      <span className={`text-[12px] font-medium px-2 py-0.5 rounded-full ${geist} ${isBreached ? "bg-[#FF453A]/10 text-[#FF453A]" : "bg-[#34C759]/10 text-[#34C759]"}`}>
-                        {isBreached ? "Breached" : "On Track"}
-                      </span>
-                      <span className={`text-[12px] font-medium ${geist} ${mutedText}`}>
-                        {diffDays === 0 ? "Today" : diffDays === 1 ? "Tomorrow" : diffDays < 0 ? `${Math.abs(diffDays)}d ago` : `In ${diffDays}d`}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Subtask Progress Bar */}
-                  {subTotal > 0 && (
-                    <div className={`mt-3 h-[2px] rounded-full overflow-hidden ${isDark ? "bg-white/[0.08]" : "bg-black/[0.08]"}`}>
-                      <div
-                        className="h-full rounded-full bg-[#FF5C2B] transition-all duration-500"
-                        style={{ width: `${progressPct}%` }}
-                      />
-                    </div>
-                  )}
-
-                  {/* Expanded Panel */}
-                  {isExpanded ? (
-                    <div className={`mt-4 pt-4 border-t flex flex-col gap-4 ${divider}`}>
-                      {/* Notes */}
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className={`text-[12px] font-semibold ${geist} ${mutedText}`}>Notes</span>
-                          {editingNotesId !== task.id && (
-                            <button
-                              onClick={() => { setEditingNotesId(task.id); setTempNotes(task.notes || ""); }}
-                              className={btnGhost}
-                            >
-                              Edit
-                            </button>
-                          )}
-                        </div>
-                        {editingNotesId === task.id ? (
-                          <div className="flex flex-col gap-2">
-                            <textarea
-                              value={tempNotes}
-                              onChange={e => setTempNotes(e.target.value)}
-                              className={`${inputStyle} min-h-[80px] resize-y`}
-                              placeholder="Add context, links, or detailed plans..."
-                              autoFocus
-                            />
-                            <div className="flex gap-3">
-                              <button onClick={() => saveNotes(task.id)} className={`text-[13px] font-semibold ${geist} text-[#FF5C2B]`}>Save</button>
-                              <button onClick={() => setEditingNotesId(null)} className={btnGhost}>Cancel</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className={`text-[15px] leading-relaxed ${task.notes ? "" : mutedText}`}>
-                            {task.notes ? task.notes : "No notes added."}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Subtasks */}
-                      <div>
-                        <span className={`text-[12px] font-semibold ${geist} block mb-2 ${mutedText}`}>Subtasks</span>
-                        {task.subtasks?.map(sub => (
-                          <div key={sub.id} className="group flex items-center gap-2 py-1.5">
-                            <input
-                              type="checkbox"
-                              checked={sub.isCompleted}
-                              onChange={() => toggleSubtask(task, sub.id)}
-                              className="w-4 h-4 rounded accent-[#FF5C2B]"
-                            />
-                            <span className={`text-[15px] flex-1 ${sub.isCompleted ? "line-through opacity-40" : ""}`}>
-                              {sub.title}
-                            </span>
-                            <button
-                              onClick={() => deleteSubtask(task, sub.id)}
-                              className={`text-[11px] font-medium text-[#FF453A] opacity-0 group-hover:opacity-100 transition-opacity ${geist}`}
-                            >
-                              Drop
-                            </button>
-                          </div>
-                        ))}
-                        <form onSubmit={e => addSubtask(e, task)} className="flex gap-2 mt-2">
-                          <input
-                            type="text"
-                            value={newSubtaskTitle}
-                            onChange={e => setNewSubtaskTitle(e.target.value)}
-                            placeholder="Add subtask..."
-                            className={`${inputStyle} py-1.5 text-[13px]`}
-                          />
-                          <button type="submit" className={btnPrimary}>Add</button>
-                        </form>
-                      </div>
-
-                      <button
-                        onClick={() => setExpandedTaskId(null)}
-                        className={`text-[13px] text-center pt-2 border-t font-medium ${geist} transition-colors ${divider} ${mutedText} hover:${isDark ? "text-[#F5F5F5]" : "text-[#1A1A1A]"}`}
-                      >
-                        Hide Details
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setExpandedTaskId(task.id)}
-                      className={`text-[13px] text-left mt-2 pt-2 border-t font-medium transition-colors ${geist} w-full ${divider} ${mutedText}`}
-                    >
-                      + View Details & Notes
-                    </button>
-                  )}
-
-                  {/* Complete / Delete — only when not expanded */}
-                  {!isExpanded && (
-                    <div className="flex items-center gap-4 mt-2">
-                      {completingTaskId === task.id ? (
-                        <div className="flex items-center gap-2 w-full">
-                          <input
-                            type="text"
-                            placeholder="Closing comment..."
-                            value={closingComment}
-                            onChange={e => setClosingComment(e.target.value)}
-                            className={`${inputStyle} text-[13px] py-1`}
-                            autoFocus
-                          />
-                          <button
-                            onClick={() => confirmCompletion(task.id)}
-                            className={`text-[13px] text-[#34C759] font-semibold ${geist} whitespace-nowrap`}
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            onClick={() => setCompletingTaskId(null)}
-                            className={`text-[13px] ${geist} opacity-50`}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => setCompletingTaskId(task.id)}
-                            className={`text-[13px] font-medium ${geist} text-[#FF5C2B] hover:text-[#FF8A5C] transition-colors`}
-                          >
-                            Complete
-                          </button>
-                          <button
-                            onClick={() => deleteTask(task.id)}
-                            className={`text-[13px] font-medium text-[#FF453A] hover:opacity-70 transition-opacity ${geist}`}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
+      {/* ── KANBAN COLUMNS: 4-wide on desktop, stacked on mobile ── */}
+      <div className="px-4 pb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 w-full">
+          {buckets.map((bucket) => (
+            <div
+              key={bucket.id}
+              className={`flex flex-col rounded-[16px] p-4 ${isDark ? "bg-white/[0.02] border border-white/[0.06]" : "bg-black/[0.02] border border-black/[0.06]"}`}
+            >
+              {/* Column Header */}
+              <div className={`flex items-center justify-between mb-4 pb-3 border-b ${divider} sticky top-0`}>
+                <div>
+                  <h2 className={`text-[16px] font-bold tracking-tight ${geist} ${bucketAccent[bucket.id]}`}>
+                    {bucket.label}
+                  </h2>
+                  {"sublabel" in bucket && (
+                    <p className={`text-[11px] mt-0.5 ${geist} ${mutedText}`}>{(bucket as { sublabel?: string }).sublabel}</p>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        ))}
+                <span className={`text-[12px] font-semibold px-2 py-0.5 rounded-full ${geist} ${isDark ? "bg-white/[0.08] text-[#A0A0A0]" : "bg-black/[0.06] text-[#6B6B6B]"}`}>
+                  {bucket.data.length}
+                </span>
+              </div>
+
+              {/* Task Cards */}
+              <div className="flex flex-col gap-3">
+                {bucket.data.length === 0 ? (
+                  <div className={`text-center py-10 text-[13px] ${geist} ${mutedText} opacity-50`}>
+                    No tasks here
+                  </div>
+                ) : (
+                  bucket.data.map(task => renderTaskCard(task))
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
+
     </div>
   );
 }

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 // --- FIREBASE IMPORTS ---
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, query, where, onSnapshot, writeBatch } from "firebase/firestore";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, query, where, onSnapshot } from "firebase/firestore";
 
 // --- FIREBASE CONFIG ---
 const firebaseConfig = {
@@ -30,8 +30,8 @@ type Subtask = {
 type Task = {
   id: string;
   title: string;
-  notes?: string;
-  subtasks?: Subtask[];
+  notes?: string;      // EPIC 2: Rich Notes
+  subtasks?: Subtask[]; // EPIC 2: Subtasks Array
   deadline: string;
   isCompleted: boolean;
   closingComment?: string;
@@ -48,7 +48,8 @@ export default function TaskTracker() {
 
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [closingComment, setClosingComment] = useState("");
-  
+
+  // EPIC 2 UI States
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
   const [tempNotes, setTempNotes] = useState("");
@@ -57,10 +58,6 @@ export default function TaskTracker() {
   const [mounted, setMounted] = useState(false);
   const [isDark, setIsDark] = useState(true);
   const [quote, setQuote] = useState({ text: "Loading inspiration...", author: "System" });
-
-  // --- CSV Import State ---
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -107,7 +104,7 @@ export default function TaskTracker() {
     if (mounted) localStorage.setItem("vimaso-theme", isDark ? "dark" : "light");
   }, [isDark, mounted]);
 
-  // --- STANDARD ACTIONS ---
+  // --- ACTIONS ---
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitle || !newTaskDeadline || !user) return;
@@ -131,6 +128,7 @@ export default function TaskTracker() {
 
   const deleteTask = async (id: string) => await deleteDoc(doc(db, "tasks", id));
 
+  // EPIC 2 ACTIONS
   const saveNotes = async (id: string) => {
     await updateDoc(doc(db, "tasks", id), { notes: tempNotes });
     setEditingNotesId(null);
@@ -146,7 +144,7 @@ export default function TaskTracker() {
   };
 
   const toggleSubtask = async (task: Task, subtaskId: string) => {
-    const updatedSubtasks = task.subtasks?.map(st => 
+    const updatedSubtasks = task.subtasks?.map(st =>
       st.id === subtaskId ? { ...st, isCompleted: !st.isCompleted } : st
     );
     await updateDoc(doc(db, "tasks", task.id), { subtasks: updatedSubtasks });
@@ -155,102 +153,6 @@ export default function TaskTracker() {
   const deleteSubtask = async (task: Task, subtaskId: string) => {
     const updatedSubtasks = task.subtasks?.filter(st => st.id !== subtaskId);
     await updateDoc(doc(db, "tasks", task.id), { subtasks: updatedSubtasks });
-  };
-
-  // --- NEW: DOWNLOAD TEMPLATE ---
-  const downloadTemplate = () => {
-    const templateData = [
-      ["title", "deadline", "notes"],
-      ["Data Type: String", "Data Type: YYYY-MM-DD", "Data Type: String (optional)"],
-      ["Example: Pay electricity bill", "2026-03-25", "Reminder: Check bank balance first"],
-      ["Example: Quarterly business review", "2026-04-15", "Discuss Q1 metrics with team"],
-      ["", "", ""]
-    ];
-
-    // Generate CSV content
-    const csvContent = templateData.map(row => 
-      row.map(cell => `"${cell}"`).join(',')
-    ).join('\n');
-
-    // Create Blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'Task_IO_Import_Template.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // --- CSV BULK IMPORT (Updated to include notes) ---
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-
-    setIsImporting(true);
-    const reader = new FileReader();
-    
-    reader.onload = async (event) => {
-      try {
-        const text = event.target?.result as string;
-        const rows = text.split('\n').map(row => row.trim()).filter(row => row.length > 0);
-        
-        const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
-        const titleIndex = headers.indexOf('title');
-        const deadlineIndex = headers.indexOf('deadline');
-        const notesIndex = headers.indexOf('notes');
-
-        if (titleIndex === -1 || deadlineIndex === -1) {
-          alert("CSV Error: Make sure row 1 has 'title' and 'deadline' as column names. 'notes' is optional.");
-          setIsImporting(false);
-          return;
-        }
-
-        const batch = writeBatch(db);
-        let validTasksCount = 0;
-
-        for (let i = 1; i < rows.length; i++) {
-          // Skip meta rows (description rows)
-          if (rows[i].includes('Data Type') || rows[i].includes('Example')) continue;
-
-          const cols = rows[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(col => col.replace(/^"|"$/g, '').trim());
-          
-          const title = cols[titleIndex];
-          const deadline = cols[deadlineIndex];
-          const notes = notesIndex !== -1 ? cols[notesIndex] : '';
-
-          if (title && deadline) {
-            const newDocRef = doc(collection(db, "tasks"));
-            batch.set(newDocRef, {
-              title: title,
-              deadline: deadline,
-              notes: notes || '',
-              isCompleted: false,
-              userId: user.uid,
-              subtasks: []
-            });
-            validTasksCount++;
-          }
-        }
-
-        if (validTasksCount > 0) {
-          await batch.commit();
-          alert(`✅ Success! Imported ${validTasksCount} tasks.`);
-        } else {
-          alert("⚠️ No valid tasks found. Check your CSV formatting.");
-        }
-      } catch (error) {
-        console.error("Error importing CSV:", error);
-        alert("❌ Failed to parse the CSV file.");
-      } finally {
-        setIsImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
-    };
-
-    reader.readAsText(file);
   };
 
   if (!mounted) return null;
@@ -307,53 +209,14 @@ export default function TaskTracker() {
           <p className={`text-lg ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>— {quote.author}</p>
         </div>
 
-        {/* Enhanced Form Card with Template Download & Bulk Import */}
-        <div className={`${cardStyle} max-w-3xl mx-auto mb-12`}>
-          <div className="flex justify-between items-center mb-6 pb-4 border-b border-inherit">
-            <h2 className="text-lg font-semibold">Initialize Task</h2>
-            <div className="flex gap-2">
-              {/* Hidden File Input */}
-              <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-              
-              {/* Download Template Button */}
-              <button 
-                onClick={downloadTemplate}
-                className={btnSecondary}
-              >
-                📋 Download Template
-              </button>
-
-              {/* Bulk Import CSV Button */}
-              <button 
-                onClick={() => fileInputRef.current?.click()} 
-                disabled={isImporting}
-                className={btnSecondary}
-              >
-                {isImporting ? 'Processing...' : '📥 Bulk Import CSV'}
-              </button>
-            </div>
-          </div>
-
-          {/* Single Task Form */}
+        <div className={`${cardStyle} max-w-3xl mx-auto mb-12 hover:scale-[1.02]`}>
           <form onSubmit={addTask} className="flex flex-col md:flex-row gap-4 items-end">
-            <div className="flex-1 w-full">
-              <label className={`text-sm mb-2 block font-medium ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>New Objective</label>
-              <input type="text" value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className={inputStyle} required placeholder="What do you want to achieve?" />
-            </div>
-            <div className="w-full md:w-48">
-              <label className={`text-sm mb-2 block font-medium ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>Deadline</label>
-              <input type="date" value={newTaskDeadline} onChange={(e) => setNewTaskDeadline(e.target.value)} className={inputStyle} required />
-            </div>
+            <div className="flex-1 w-full"><label className={`text-sm mb-2 block font-medium ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>New Objective</label><input type="text" value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className={inputStyle} required placeholder="What do you want to achieve?" /></div>
+            <div className="w-full md:w-48"><label className={`text-sm mb-2 block font-medium ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>Deadline</label><input type="date" value={newTaskDeadline} onChange={(e) => setNewTaskDeadline(e.target.value)} className={inputStyle} required /></div>
             <button type="submit" className={btnPrimary}>Add Task</button>
           </form>
-
-          {/* Template Info Helper */}
-          <div className={`mt-4 p-3 rounded-[10px] text-xs ${isDark ? "bg-white/5 border border-white/5" : "bg-black/5 border border-black/5"}`}>
-            <p className="font-medium mb-1">📌 CSV Format: Requires columns <code className={isDark ? "bg-black/30" : "bg-black/10"}>title</code>, <code className={isDark ? "bg-black/30" : "bg-black/10"}>deadline</code> (YYYY-MM-DD), <code className={isDark ? "bg-black/30" : "bg-black/10"}>notes</code> (optional)</p>
-          </div>
         </div>
 
-        {/* Kanban Columns */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-start">
           {buckets.map((bucket) => (
             <div key={bucket.id} className={`flex flex-col rounded-[22px] p-5 border ${isDark ? "bg-[#1c1c1e]/40 border-white/5" : "bg-black/[0.02] border-black/5"}`}>
@@ -367,18 +230,21 @@ export default function TaskTracker() {
                   const diffDays = getDaysDiff(task.deadline);
                   const isBreached = diffDays < 0;
                   const isExpanded = expandedTaskId === task.id;
-                  
+
+                  // Progress Calculation
                   const subTotal = task.subtasks?.length || 0;
                   const subDone = task.subtasks?.filter(s => s.isCompleted).length || 0;
                   const progressPct = subTotal === 0 ? 0 : Math.round((subDone / subTotal) * 100);
 
                   return (
                     <div key={task.id} className={`${cardStyle} flex flex-col gap-3 transition-shadow ${!isExpanded && "hover:border-[#2997ff]/30"}`}>
-                      
+
+                      {/* Base Info */}
                       <div className="flex justify-between items-start gap-3">
                         <span className="text-base font-medium leading-tight">{task.title}</span>
                       </div>
 
+                      {/* Progress Bar (If Subtasks Exist) */}
                       {subTotal > 0 && (
                         <div className="w-full mt-1">
                           <div className="flex justify-between text-[10px] font-medium mb-1 opacity-70">
@@ -400,14 +266,17 @@ export default function TaskTracker() {
                         </span>
                       </div>
 
+                      {/* Expandable Details Area */}
                       {isExpanded ? (
                         <div className={`mt-3 pt-3 border-t flex flex-col gap-5 ${isDark ? "border-white/10" : "border-black/10"}`}>
+
+                          {/* Rich Notes Section */}
                           <div>
                             <div className="flex justify-between items-center mb-2">
                               <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>Notes</span>
                               {editingNotesId !== task.id && <button onClick={() => { setEditingNotesId(task.id); setTempNotes(task.notes || ""); }} className={btnGhost}>Edit</button>}
                             </div>
-                            
+
                             {editingNotesId === task.id ? (
                               <div className="flex flex-col gap-2">
                                 <textarea value={tempNotes} onChange={e => setTempNotes(e.target.value)} className={`${inputStyle} text-sm min-h-[80px] resize-y`} placeholder="Add context, links, or detailed plans..." autoFocus />
@@ -423,6 +292,7 @@ export default function TaskTracker() {
                             )}
                           </div>
 
+                          {/* Subtasks Section */}
                           <div>
                             <span className={`text-xs font-semibold uppercase tracking-wider block mb-2 ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>Subtasks</span>
                             <div className="space-y-2 mb-3">
@@ -450,6 +320,7 @@ export default function TaskTracker() {
                         </button>
                       )}
 
+                      {/* Completion & Deletion Actions */}
                       {!isExpanded && (
                         <div className={`flex items-center justify-between mt-1 pt-3 border-t ${isDark ? "border-white/10" : "border-black/10"}`}>
                           {completingTaskId === task.id ? (

@@ -184,7 +184,7 @@ export default function TaskTracker() {
     document.body.removeChild(link);
   };
 
-  // --- CSV BULK IMPORT (Updated to include notes) ---
+  // --- CSV BULK IMPORT ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -281,8 +281,16 @@ export default function TaskTracker() {
   today.setHours(0, 0, 0, 0);
   const getDaysDiff = (deadline: string) => Math.ceil((new Date(deadline).getTime() - today.getTime()) / 86400000);
 
-  const activeTasks = tasks.filter(t => !t.isCompleted);
-  const completedTasks = tasks.filter(t => t.isCompleted);
+  // Filter out completed tasks and sort them by nearest date, then alphabetically
+  const activeTasks = tasks
+    .filter(t => !t.isCompleted)
+    .sort((a, b) => {
+      const dateDiff = new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      if (dateDiff === 0) {
+        return a.title.localeCompare(b.title);
+      }
+      return dateDiff;
+    });
 
   const buckets = [
     { id: 'daily', label: 'Daily Goals', data: activeTasks.filter(t => getDaysDiff(t.deadline) <= 0) },
@@ -307,15 +315,12 @@ export default function TaskTracker() {
           <p className={`text-lg ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>— {quote.author}</p>
         </div>
 
-        {/* Enhanced Form Card with Template Download & Bulk Import */}
         <div className={`${cardStyle} max-w-3xl mx-auto mb-12`}>
           <div className="flex justify-between items-center mb-6 pb-4 border-b border-inherit">
             <h2 className="text-lg font-semibold">Initialize Task</h2>
             <div className="flex gap-2">
-              {/* Hidden File Input */}
               <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
               
-              {/* Download Template Button */}
               <button 
                 onClick={downloadTemplate}
                 className={btnSecondary}
@@ -323,7 +328,6 @@ export default function TaskTracker() {
                 📋 Download Template
               </button>
 
-              {/* Bulk Import CSV Button */}
               <button 
                 onClick={() => fileInputRef.current?.click()} 
                 disabled={isImporting}
@@ -334,7 +338,6 @@ export default function TaskTracker() {
             </div>
           </div>
 
-          {/* Single Task Form */}
           <form onSubmit={addTask} className="flex flex-col md:flex-row gap-4 items-end">
             <div className="flex-1 w-full">
               <label className={`text-sm mb-2 block font-medium ${isDark ? "text-[#86868b]" : "text-gray-500"}`}>New Objective</label>
@@ -347,17 +350,15 @@ export default function TaskTracker() {
             <button type="submit" className={btnPrimary}>Add Task</button>
           </form>
 
-          {/* Template Info Helper */}
           <div className={`mt-4 p-3 rounded-[10px] text-xs ${isDark ? "bg-white/5 border border-white/5" : "bg-black/5 border border-black/5"}`}>
             <p className="font-medium mb-1">📌 CSV Format: Requires columns <code className={isDark ? "bg-black/30" : "bg-black/10"}>title</code>, <code className={isDark ? "bg-black/30" : "bg-black/10"}>deadline</code> (YYYY-MM-DD), <code className={isDark ? "bg-black/30" : "bg-black/10"}>notes</code> (optional)</p>
           </div>
         </div>
 
-        {/* Kanban Columns */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-start">
           {buckets.map((bucket) => (
             <div key={bucket.id} className={`flex flex-col rounded-[22px] p-5 border ${isDark ? "bg-[#1c1c1e]/40 border-white/5" : "bg-black/[0.02] border-black/5"}`}>
-              <div className={`mb-4 pb-3 border-b flex justify-between items-center sticky top-0 ${isDark ? "border-white/10 text-white" : "border-black/10 text-black"}`}>
+              <div className={`mb-4 pb-3 border-b flex justify-between items-center sticky top-0 z-10 ${isDark ? "border-white/10 text-white bg-[#1c1c1e]" : "border-black/10 text-black bg-[#f5f5f7]"}`}>
                 <h3 className="text-lg font-semibold tracking-tight">{bucket.label}</h3>
                 <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${isDark ? "bg-white/10" : "bg-black/10"}`}>{bucket.data.length}</span>
               </div>
